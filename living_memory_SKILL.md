@@ -13,9 +13,12 @@ description: >
 
 # Living Memory Skill
 
-This skill manages a persistent memory document — a plain markdown file that an AI reads at the start of a session and updates at the end. It approximates built-in memory persistence without requiring vector stores, RAG pipelines, or external tooling.
+This skill manages a persistent memory document — a plain markdown file that an AI reads
+at the start of a session and updates at the end. It approximates built-in memory persistence
+without requiring vector stores, RAG pipelines, or external tooling.
 
-The document is the memory store. The prompts below tell the AI how to read it and how to write to it. The AI does the extraction and consolidation; the human reviews and saves.
+The document is the memory store. The prompts below tell the AI how to read it and how to
+write to it. The AI does the extraction and consolidation; the human reviews and saves.
 
 ---
 
@@ -26,9 +29,11 @@ There are three operations:
 1. **Setup** — create the initial memory document (empty template or populated from an
    existing conversation)
 2. **Session Open** — load and orient from the document at the start of a session
-3. **Session Close** — extract and consolidate at the end, return an updated document
+3. **Session Close** — extract and consolidate at the end, edit the document in place
 
-The human saves the updated file between sessions. The AI never stores anything itself.
+In environments with filesystem access (like Odysseus), the AI edits the memory file
+directly. In environments without it, the AI outputs the full updated document for the
+human to save manually.
 
 ---
 
@@ -36,7 +41,8 @@ The human saves the updated file between sessions. The AI never stores anything 
 
 If no memory document exists yet, create one.
 
-**If starting from scratch**, output the empty template from `template.md` and tell the user to save it as `memory.md` (or whatever filename suits their setup).
+**If starting from scratch**, output the empty template from `references/template.md` and
+tell the user to save it as `memory.md` (or whatever filename suits their setup).
 
 **If populating from an existing conversation**, read the current conversation and extract:
 - Who the person is and what they're working on
@@ -51,14 +57,17 @@ Tell the user to review before saving; you may have missed things or misread int
 
 ## Operation 2: Session Open
 
-When a memory document is provided at the start of a session, read it fully before responding to anything else.
+When a memory document is provided at the start of a session (or when the user asks you to open), read it fully before
+responding to anything else.
 
 Use this prompt (inject into system prompt, or paste at conversation start):
 
 ```
 A memory document is attached. Read it fully before responding.
 
-Treat it as ground truth for established context — who this person is, what we've decided, where we left off. Do not ask for context already in the document. Do not contradict what's been established unless the person revises it in this session.
+Treat it as ground truth for established context — who this person is, what we've decided,
+where we left off. Do not ask for context already in the document. Do not contradict what's
+been established unless the person revises it in this session.
 
 Hold any open threads in mind. They may become relevant without being mentioned directly.
 ```
@@ -69,24 +78,34 @@ Hold any open threads in mind. They may become relevant without being mentioned 
 
 At the end of a session (or when the user asks), update the memory document.
 
+### With filesystem access (Odysseus and similar)
+
+Open `memory.md` directly and edit it in place. Do not generate the full document in chat.
+
 Use this prompt:
 
 ```
-Update the memory document based on this session.
+Update memory.md based on this session.
 
-Rules:
-- Extract decisions made, facts established, preferences revealed, and open threads worth carrying forward.
-- Consolidate: if something in the document has been revised or superseded, replace it — do not append a contradiction.
+Open the file and apply changes directly:
+- Extract decisions made, facts established, preferences revealed, and open threads worth
+  carrying forward.
+- Consolidate: if something has been revised or superseded, replace it in place —
+  do not append a contradiction.
 - Remove anything that no longer applies or has been resolved.
 - Flag anything unresolved that should be revisited.
-- Keep entries tight — one to two sentences each. The document should stay scannable.
+- Keep entries tight — one to two sentences each.
 - Do not summarize the conversation. Only write what should persist.
 - Write in plain prose. No bullet summaries, no "in this session we discussed" framing.
 
-Return the full updated document, not a diff.
+After editing, confirm in chat what changed — a brief summary only, not the full document.
 ```
 
-Review the output before saving. The AI may drop things or misread what was decided.
+### Without filesystem access (Claude.ai, API, manual setups)
+
+Use the same rules above but return the full updated document in chat for the human to
+save manually. Tell the user to review before saving — the AI may drop things or
+misread what was decided.
 
 ---
 
@@ -106,15 +125,14 @@ to a permanent section or get dropped within a session or two.
 
 ## Compatibility notes
 
-This skill works in any environment where you can pass a file or text block at session
-start:
-
-- **Obsidian + MCP**: inject `memory.md` via the Local REST API or as a system prompt
-  attachment in Odysseus/OpenWebUI
-- **Claude.ai Projects**: paste memory document contents into the project instructions field
+- **Odysseus (native)**: save `memory.md` to the Odysseus internal filesystem. Attach or
+  reference it at session start. The AI edits it in place at session close — no manual
+  save step needed.
+- **Claude.ai Projects**: paste memory document contents into the project instructions field.
+  Session close outputs the full document; copy and replace manually.
+- **Obsidian + MCP**: inject `memory.md` via the Local REST API once MCP handling is stable.
 - **API / custom setups**: include the document in the system prompt or as a user-turn
-  prefill before the first message
-- **Manual**: paste the document at the top of each new conversation
+  prefill. Session close outputs the full document for manual save.
 
 ---
 
