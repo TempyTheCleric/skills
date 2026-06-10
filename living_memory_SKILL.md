@@ -28,12 +28,12 @@ There are three operations:
 
 1. **Setup** — create the initial memory document (empty template or populated from an
    existing conversation)
-2. **Session Open** — load and orient from the document at the start of a session
+2. **Session Open** — locate, load, and orient from the document at the start of a session
 3. **Session Close** — extract and consolidate at the end, edit the document in place
 
-In environments with filesystem access (like Odysseus), the AI edits the memory file
-directly. In environments without it, the AI outputs the full updated document for the
-human to save manually.
+In Odysseus, the AI locates documents via `manage_skills` procedure query and edits them
+directly using `edit_document` or `update_document`. In other environments, the AI outputs
+the full updated document for the human to save manually.
 
 ---
 
@@ -41,26 +41,61 @@ human to save manually.
 
 If no memory document exists yet, create one.
 
-**If starting from scratch**, output the empty template from `references/template.md` and
-tell the user to save it as `memory.md` (or whatever filename suits their setup).
+### In Odysseus
 
-**If populating from an existing conversation**, read the current conversation and extract:
+Run a `manage_skills` procedure query to check whether a document titled "memory" already
+exists. If it does, use `edit_document` or `update_document` as appropriate rather than
+creating a duplicate.
+
+If the document does not exist, populate it using `update_document` — either from the
+empty template in `template.md`, or extracted from the current conversation
+(see below). `update_document` is correct here because the document is being written
+from scratch.
+
+**If populating from an existing conversation**, extract:
 - Who the person is and what they're working on
 - Any decisions or conclusions that were reached
 - Open threads or unresolved questions
 - Preferences or working style signals
 
-Populate the template with what you find. Keep entries tight — one to two sentences each.
-Tell the user to review before saving; you may have missed things or misread intent.
+Keep entries tight — one to two sentences each. Confirm with the user before writing;
+you may have missed things or misread intent.
+
+### In other environments
+
+Output the empty template from `template.md` and tell the user to save it as
+`memory.md`. If populating from a conversation, extract the same fields above and present
+the populated document for the user to review and save.
 
 ---
 
 ## Operation 2: Session Open
 
-When a memory document is provided at the start of a session (or when the user asks you to open), read it fully before
-responding to anything else.
+At the start of a session, load and read the memory document before responding to
+anything else.
 
-Use this prompt (inject into system prompt, or paste at conversation start):
+### In Odysseus
+
+Run a `manage_skills` procedure query to locate the document titled "memory" and open it.
+Read it fully before proceeding.
+
+Use this prompt:
+
+```
+Run a manage_skills procedure query to find and open the document titled "memory".
+Read it fully before responding to anything else.
+
+Treat it as ground truth for established context — who this person is, what we've decided,
+where we left off. Do not ask for context already in the document. Do not contradict what's
+been established unless the person revises it in this session.
+
+Hold any open threads in mind. They may become relevant without being mentioned directly.
+```
+
+### In other environments
+
+Paste the memory document contents at the top of the conversation or inject into the
+system prompt, then use this prompt:
 
 ```
 A memory document is attached. Read it fully before responding.
@@ -78,16 +113,36 @@ Hold any open threads in mind. They may become relevant without being mentioned 
 
 At the end of a session (or when the user asks), update the memory document.
 
-### With filesystem access (Odysseus and similar)
+### In Odysseus
 
-Open `memory.md` directly and edit it in place. Do not generate the full document in chat.
+Choose the right tool based on scope:
+
+- **Small changes** (a few entries added, updated, or removed) → use `edit_document` with
+  targeted find-and-replace. Preserves everything else in the document.
+- **Major restructuring** (document shape has changed, many sections need rewriting) →
+  use `update_document` to replace the full content at once.
+
+For `edit_document`, use this format — one call per changed section:
+
+```
+edit_document title:memory
+<<<FIND
+[exact text to replace]
+<<<REPLACE
+[updated text]
+```
 
 Use this prompt:
 
 ```
-Update memory.md based on this session.
+Update the memory document based on this session.
 
-Open the file and apply changes directly:
+First, run a manage_skills procedure query to open the document titled "memory".
+
+Then apply changes using edit_document for targeted updates, or update_document if the
+document needs significant restructuring.
+
+Rules for what to change:
 - Extract decisions made, facts established, preferences revealed, and open threads worth
   carrying forward.
 - Consolidate: if something has been revised or superseded, replace it in place —
@@ -98,14 +153,13 @@ Open the file and apply changes directly:
 - Do not summarize the conversation. Only write what should persist.
 - Write in plain prose. No bullet summaries, no "in this session we discussed" framing.
 
-After editing, confirm in chat what changed — a brief summary only, not the full document.
+After all edits, confirm in chat what changed — a brief summary only, not the full document.
 ```
 
 ### Without filesystem access (Claude.ai, API, manual setups)
 
 Use the same rules above but return the full updated document in chat for the human to
-save manually. Tell the user to review before saving — the AI may drop things or
-misread what was decided.
+save manually. Review before saving — the AI may drop things or misread what was decided.
 
 ---
 
@@ -125,9 +179,8 @@ to a permanent section or get dropped within a session or two.
 
 ## Compatibility notes
 
-- **Odysseus (native)**: save `memory.md` to the Odysseus internal filesystem. Attach or
-  reference it at session start. The AI edits it in place at session close — no manual
-  save step needed.
+- **Odysseus (native)**: use `manage_skills` to locate the memory document. `update_document`
+  for setup and full rewrites. `edit_document` for targeted session-close updates.
 - **Claude.ai Projects**: paste memory document contents into the project instructions field.
   Session close outputs the full document; copy and replace manually.
 - **Obsidian + MCP**: inject `memory.md` via the Local REST API once MCP handling is stable.
